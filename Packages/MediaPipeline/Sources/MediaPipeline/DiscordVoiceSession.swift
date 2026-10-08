@@ -758,56 +758,6 @@ public actor DiscordVoiceSession: DaveSessionDelegate {
         completeReconnect()
     }
 
-    private func startAudioEngine() async throws {
-        // disconnect() cancels this task; bail out after each await so a late
-        // start never opens the mic on a disconnected session.
-        let permission = await VoiceAudioEngine.requestMicrophonePermission()
-        try Task.checkCancellation()
-        guard permission else { throw VoiceSessionError.microphonePermissionDenied }
-        let audio = try await VoiceAudioEngine()
-        await audio.setInputVolume(configuration.inputVolume)
-        await audio.setOutputVolume(configuration.outputVolume)
-        await audio.setMuted(configuration.isMuted)
-        await audio.setDeafened(configuration.isDeafened)
-        try Task.checkCancellation()
-        // Never turn a transient UDP stall into seconds of stale microphone
-        // audio. The capture offset preserves the RTP clock when older frames
-        // are discarded, while the newest three frames bound latency to 60 ms.
-        let capturedFrames = AsyncStream<CapturedOpusFrame>.makeStream(
-            bufferingPolicy: .bufferingNewest(3)
-        )
-        capturedAudioContinuation = capturedFrames.continuation
-        let captureTask = Task { [weak self] in
-            for await frame in capturedFrames.stream {
-                guard !Task.isCancelled else { return }
-                await self?.handleCapturedFrame(frame)
-            }
-        }
-        capturedAudioTask = captureTask
-        do {
-            try await audio.start(
-                inputDeviceID: configuration.inputDeviceID,
-                outputDeviceID: configuration.outputDeviceID
-            ) { [continuation = capturedFrames.continuation] frame in
-                continuation.yield(frame)
-            }
-        } catch {
-            capturedFrames.continuation.finish()
-            capturedAudioTask?.cancel()
-            capturedAudioContinuation = nil
-            capturedAudioTask = nil
-            throw error
-        }
-        if Task.isCancelled {
-            // disconnect() already cleared the shared stream state; only release ours.
-            await audio.stop()
-            capturedFrames.continuation.finish()
-            captureTask.cancel()
-            throw CancellationError()
-        }
-        audioEngine = audio
-    }
-
     private func handleCapturedFrame(_ frame: CapturedOpusFrame) async {
         guard state == .connected, audioSSRC != nil else { return }
         updateLocalVoiceActivity(frame.containsVoice)
@@ -1324,6 +1274,59 @@ public actor DiscordVoiceSession: DaveSessionDelegate {
                 )
             }
         }
+    }
+}
+
+// Kept outside the actor body to stay within the type length limit.
+private extension DiscordVoiceSession {
+    func startAudioEngine() async throws {
+        // disconnect() cancels this task; bail out after each await so a late
+        // start never opens the mic on a disconnected session.
+        let permission = await VoiceAudioEngine.requestMicrophonePermission()
+        try Task.checkCancellation()
+        guard permission else { throw VoiceSessionError.microphonePermissionDenied }
+        let audio = try await VoiceAudioEngine()
+        await audio.setInputVolume(configuration.inputVolume)
+        await audio.setOutputVolume(configuration.outputVolume)
+        await audio.setMuted(configuration.isMuted)
+        await audio.setDeafened(configuration.isDeafened)
+        try Task.checkCancellation()
+        // Never turn a transient UDP stall into seconds of stale microphone
+        // audio. The capture offset preserves the RTP clock when older frames
+        // are discarded, while the newest three frames bound latency to 60 ms.
+        let capturedFrames = AsyncStream<CapturedOpusFrame>.makeStream(
+            bufferingPolicy: .bufferingNewest(3)
+        )
+        capturedAudioContinuation = capturedFrames.continuation
+        let captureTask = Task { [weak self] in
+            for await frame in capturedFrames.stream {
+                guard !Task.isCancelled else { return }
+                await self?.handleCapturedFrame(frame)
+            }
+        }
+        capturedAudioTask = captureTask
+        do {
+            try await audio.start(
+                inputDeviceID: configuration.inputDeviceID,
+                outputDeviceID: configuration.outputDeviceID
+            ) { [continuation = capturedFrames.continuation] frame in
+                continuation.yield(frame)
+            }
+        } catch {
+            capturedFrames.continuation.finish()
+            capturedAudioTask?.cancel()
+            capturedAudioContinuation = nil
+            capturedAudioTask = nil
+            throw error
+        }
+        if Task.isCancelled {
+            // disconnect() already cleared the shared stream state; only release ours.
+            await audio.stop()
+            capturedFrames.continuation.finish()
+            captureTask.cancel()
+            throw CancellationError()
+        }
+        audioEngine = audio
     }
 }
 
