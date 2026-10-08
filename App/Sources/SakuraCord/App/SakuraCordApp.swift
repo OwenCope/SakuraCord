@@ -330,7 +330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @MainActor
-private final class SakuraCordRuntimeModelHolder {
+final class SakuraCordRuntimeModelHolder {
     static let shared = SakuraCordRuntimeModelHolder()
     weak var model: AppModel?
 }
