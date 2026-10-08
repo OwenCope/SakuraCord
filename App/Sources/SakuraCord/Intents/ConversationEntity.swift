@@ -53,7 +53,7 @@ nonisolated struct ConversationEntity: AppEntity, IndexedEntity, Equatable, Send
             return DisplayRepresentation.Image(systemName: "number")
         }
         if let initial = title.first?.lowercased(), initial.count == 1,
-           let scalar = initial.unicodeScalars.first, ("a"..."z").contains(scalar)
+           let scalar = initial.unicodeScalars.first, ("a" ... "z").contains(scalar)
         {
             return DisplayRepresentation.Image(systemName: "\(initial).circle.fill")
         }
