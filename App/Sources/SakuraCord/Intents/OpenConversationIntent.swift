@@ -20,13 +20,28 @@ struct OpenConversationIntent: OpenIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        let channelID = target.id
-        try await Self.open(channelID)
+        let identifier = target.id
+        try await Self.open(identifier)
         return .result()
     }
 
+    /// A Spotlight item from another saved account switches to that account
+    /// before opening the conversation.
     @MainActor
-    private static func open(_ channelID: ChannelID) async throws {
-        try await IntentModelAccess.requireWorkspaceModel().navigate(to: channelID)
+    private static func open(_ identifier: ConversationEntityID) async throws {
+        var model = try await IntentModelAccess.requireWorkspaceModel()
+        if model.activeAccountID != identifier.accountID {
+            guard let account = model.savedAccounts.first(where: { $0.accountID == identifier.accountID }) else {
+                throw IntentError.accountUnavailable
+            }
+            guard await model.switchAccount(to: account.accountID) else {
+                throw IntentError.switchAccount(account.resolvedDisplayName)
+            }
+            model = try await IntentModelAccess.requireWorkspaceModel()
+            guard model.activeAccountID == identifier.accountID else {
+                throw IntentError.switchAccount(account.resolvedDisplayName)
+            }
+        }
+        model.navigate(to: identifier.channelID)
     }
 }

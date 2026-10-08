@@ -5,6 +5,8 @@ nonisolated enum IntentError: Error, CustomLocalizedStringResourceConvertible {
     case signedOut
     case notInVoice
     case statusUpdateFailed
+    case accountUnavailable
+    case switchAccount(String)
 
     var localizedStringResource: LocalizedStringResource {
         switch self {
@@ -14,6 +16,10 @@ nonisolated enum IntentError: Error, CustomLocalizedStringResourceConvertible {
             "Join a voice channel first."
         case .statusUpdateFailed:
             "SakuraCord couldn’t change your status."
+        case .accountUnavailable:
+            "That conversation belongs to an account that’s no longer signed in."
+        case let .switchAccount(name):
+            "Switch to \(name) to open this."
         }
     }
 }

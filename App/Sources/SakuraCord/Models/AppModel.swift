@@ -320,7 +320,7 @@ final class AppModel {
     var activeAccountID: String?
     @ObservationIgnored var diagnosticsShareInFlight = false
     var sessionState: SessionState {
-        // Signing out or switching accounts must also drop indexed conversations.
+        // Pauses indexing while signed out or switching accounts.
         didSet { if sessionState != oldValue { IntentConversationCatalog.scheduleSpotlightIndex(for: self) } }
     }
     var hasPendingLaunchWelcome: Bool
