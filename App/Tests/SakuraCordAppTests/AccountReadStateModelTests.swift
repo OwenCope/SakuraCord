@@ -2234,6 +2234,7 @@ struct AccountReadStateModelTests {
                 guildID: guildID,
                 name: "forum",
                 kind: .forum,
+                categoryID: categoryID,
                 lastMessageID: MessageID(rawValue: postID.rawValue)
             )
         ])
@@ -2244,6 +2245,8 @@ struct AccountReadStateModelTests {
             )
         )
         #expect(model.unreadPresentationProjection().unreadByGuildID[guildID] != true)
+        #expect(!model.guildUnread(guildID))
+        #expect(model.unreadCategoryIDs(in: guildID).isEmpty)
 
         model.merge(
             forumPost: ForumPost(
@@ -2257,6 +2260,37 @@ struct AccountReadStateModelTests {
             )
         )
         #expect(model.unreadPresentationProjection().unreadByGuildID[guildID] == true)
+        #expect(model.guildUnread(guildID))
+
+        // A joined thread keeps lighting the server after its forum's
+        // boundary has moved past it.
+        let joinedThreadID = ChannelID(rawValue: 260)
+        model.merge(
+            thread: MessageThreadSummary(
+                id: joinedThreadID,
+                guildID: guildID,
+                parentID: forumID,
+                name: "Joined thread",
+                lastMessageID: MessageID(rawValue: 290)
+            )
+        )
+        model.applyRemote(
+            ChannelReadState(
+                channelID: postID,
+                lastAcknowledgedMessageID: MessageID(rawValue: postID.rawValue)
+            )
+        )
+        model.applyRemote(
+            ChannelReadState(
+                channelID: joinedThreadID,
+                lastAcknowledgedMessageID: MessageID(rawValue: 280)
+            )
+        )
+        let threadProjection = model.unreadPresentationProjection()
+        #expect(threadProjection.newForumPostsByChannelID[forumID, default: 0] == 0)
+        #expect(threadProjection.unreadByChannelID[joinedThreadID] == true)
+        #expect(threadProjection.unreadByGuildID[guildID] == true)
+        #expect(model.guildUnread(guildID))
 
         model.apply(
             GuildNotificationSettings(
@@ -2267,6 +2301,7 @@ struct AccountReadStateModelTests {
             )
         )
         #expect(model.unreadPresentationProjection().unreadByGuildID[guildID] != true)
+        #expect(!model.guildUnread(guildID))
     }
 
     @Test func `one pass category unread projection matches acknowledgement eligibility`() {
