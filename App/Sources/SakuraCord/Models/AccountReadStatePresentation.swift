@@ -29,6 +29,27 @@ extension AccountReadStateModel {
         let policy: UnreadPolicySource
         let forumPostArchivedByID: [ChannelID: Bool]
 
+        private func markGuildsWithNewForumPosts(
+            _ newForumPostsByChannelID: [ChannelID: Int],
+            in unreadByGuildID: inout [GuildID: Bool],
+            now: Date
+        ) {
+            for (forumID, count) in newForumPostsByChannelID where count > 0 {
+                guard let forum = entries[forumID],
+                      forum.isAccessible,
+                      let guildID = policy.channelByID[forumID]?.guildID
+                else { continue }
+                let effectivePolicy = policy.effectivePolicy(for: forum, now: now)
+                if !effectivePolicy.categoryMuted,
+                   !effectivePolicy.guildMuted,
+                   !effectivePolicy.channelMuted,
+                   effectivePolicy.showsUnread
+                {
+                    unreadByGuildID[guildID] = true
+                }
+            }
+        }
+
         func projection(
             now: Date = .now,
             cancelsCooperatively: Bool = false,
@@ -73,9 +94,12 @@ extension AccountReadStateModel {
                         || (!effectivePolicy.guildMuted
                             && !effectivePolicy.presentationChannelMuted
                             && effectivePolicy.showsUnread)
+                    // A forum's own boundary trails its newest post, so its
+                    // rail activity comes only from unseen posts below.
                     contributesToGuildUnread = !effectivePolicy.categoryMuted
                         && (entry.mentionCount > 0
-                            || (!effectivePolicy.guildMuted
+                            || (entry.kind != .forum
+                                && !effectivePolicy.guildMuted
                                 && !effectivePolicy.channelMuted
                                 && effectivePolicy.showsUnread))
                 }
@@ -111,6 +135,7 @@ extension AccountReadStateModel {
                 }
 
                 guard let parentID = entry.parentID,
+                      isEligible,
                       forumPostArchivedByID[channelID] != true,
                       !entry.hasAuthoritativeReadState,
                       let parent = entries[parentID],
@@ -123,6 +148,8 @@ extension AccountReadStateModel {
                     newForumPostsByChannelID[parentID, default: 0] += 1
                 }
             }
+
+            markGuildsWithNewForumPosts(newForumPostsByChannelID, in: &unreadByGuildID, now: now)
 
             return UnreadPresentationProjection(
                 unreadByChannelID: unreadByChannelID,

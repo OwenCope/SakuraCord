@@ -2224,6 +2224,51 @@ struct AccountReadStateModelTests {
         #expect(projection.totalMentions == model.totalMentions)
     }
 
+    @Test func `guild unread comes from unseen forum posts not the forum boundary`() {
+        let forumID = ChannelID(rawValue: 250)
+        let postID = ChannelID(rawValue: 300)
+        let model = makeModel(latest: 10, acknowledged: 10)
+        model.merge(channels: [
+            Channel(
+                id: forumID,
+                guildID: guildID,
+                name: "forum",
+                kind: .forum,
+                lastMessageID: MessageID(rawValue: postID.rawValue)
+            )
+        ])
+        model.applyRemote(
+            ChannelReadState(
+                channelID: forumID,
+                lastAcknowledgedMessageID: MessageID(rawValue: 275)
+            )
+        )
+        #expect(model.unreadPresentationProjection().unreadByGuildID[guildID] != true)
+
+        model.merge(
+            forumPost: ForumPost(
+                thread: MessageThreadSummary(
+                    id: postID,
+                    guildID: guildID,
+                    parentID: forumID,
+                    name: "Unseen post",
+                    lastMessageID: MessageID(rawValue: postID.rawValue)
+                )
+            )
+        )
+        #expect(model.unreadPresentationProjection().unreadByGuildID[guildID] == true)
+
+        model.apply(
+            GuildNotificationSettings(
+                guildID: guildID,
+                channelOverrides: [
+                    ChannelNotificationOverride(channelID: forumID, isMuted: true)
+                ]
+            )
+        )
+        #expect(model.unreadPresentationProjection().unreadByGuildID[guildID] != true)
+    }
+
     @Test func `one pass category unread projection matches acknowledgement eligibility`() {
         let model = makeModel(latest: 11, acknowledged: 10)
         #expect(model.unreadCategoryIDs(in: guildID) == [categoryID])
