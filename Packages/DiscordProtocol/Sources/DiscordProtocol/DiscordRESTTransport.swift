@@ -205,13 +205,10 @@ extension DiscordRESTProvider {
             guard let index = operation.index, items.indices.contains(index) else { return }
             items.remove(at: index)
         case "INVALIDATE":
-            guard let range = operation.range, range.count == 2, !items.isEmpty else { return }
-            let lower = max(0, range[0])
-            let upper = min(items.count - 1, range[1])
-            guard lower <= upper else { return }
-            for index in lower ... upper {
-                items[index] = nil
-            }
+            // Keep the last known rows. Discord sends INVALIDATE when it stops
+            // tracking a range, and no SYNC follows unless the range is
+            // subscribed again, so clearing them left permanent placeholders.
+            return
         default:
             return
         }

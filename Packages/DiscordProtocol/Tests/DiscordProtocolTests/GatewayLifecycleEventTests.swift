@@ -305,6 +305,52 @@ struct GatewayLifecycleEventTests {
         ) == [UserID(rawValue: 1)])
     }
 
+    @Test func `member list rows survive INVALIDATE until the next SYNC`() async {
+        let provider = makeProvider()
+        await provider.receiveGatewayDispatchForTesting(
+            name: "READY",
+            data: .object([
+                "user": user(id: "1", username: "current", globalName: "Current"),
+                "guilds": .array([]),
+            ])
+        )
+        await provider.receiveGatewayDispatchForTesting(
+            name: "GUILD_CREATE", data: guildCreatePayload()
+        )
+        await provider.receiveGatewayDispatchForTesting(
+            name: "GUILD_MEMBER_LIST_UPDATE",
+            data: memberListUpdate(
+                id: "everyone", userIDs: ["1", "2", "3"], groupCount: 3
+            )
+        )
+        await provider.receiveGatewayDispatchForTesting(
+            name: "GUILD_MEMBER_LIST_UPDATE",
+            data: .object([
+                "guild_id": .string("100"),
+                "id": .string("everyone"),
+                "ops": .array([
+                    .object([
+                        "op": .string("INVALIDATE"),
+                        "range": .array([.number(0), .number(99)]),
+                    ])
+                ]),
+            ])
+        )
+        #expect(await provider.orderedMemberListIDsForTesting(
+            guildID: guildID, memberListID: "everyone"
+        ) == [UserID(rawValue: 1), UserID(rawValue: 2), UserID(rawValue: 3)])
+
+        await provider.receiveGatewayDispatchForTesting(
+            name: "GUILD_MEMBER_LIST_UPDATE",
+            data: memberListUpdate(
+                id: "everyone", userIDs: ["4", "5", "6"], groupCount: 3
+            )
+        )
+        #expect(await provider.orderedMemberListIDsForTesting(
+            guildID: guildID, memberListID: "everyone"
+        ) == [UserID(rawValue: 4), UserID(rawValue: 5), UserID(rawValue: 6)])
+    }
+
     @Test func `desktop ETF numeric permissions guild create adds a new guild`() async {
         let provider = makeProvider()
 

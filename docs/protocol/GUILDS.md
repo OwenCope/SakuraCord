@@ -133,6 +133,8 @@ identities separately from message bodies; member-list presentation should neith
 scan history nor create a REST fan-out. Full profile reads are explicit/coalesced
 and are not a substitute for guild member state. Check current access before
 publishing a cached channel or member result after asynchronous work.
+A member-list `INVALIDATE` keeps the last known rows; when its range overlaps the
+current subscription, re-send that subscription so Discord replies with a `SYNC`.
 
 ### Thread member inspector
 
