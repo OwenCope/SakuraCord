@@ -305,29 +305,48 @@ struct GatewayLifecycleEventTests {
         ) == [UserID(rawValue: 1)])
     }
 
-    @Test func `member list rows survive INVALIDATE until the next SYNC`() async {
-        let provider = makeProvider()
-        await provider.receiveGatewayDispatchForTesting(
-            name: "READY",
+    @Test func `overlapping INVALIDATE keeps rows and renews the member-list subscription`() async throws {
+        let socket = ReadyGatewaySocket()
+        await socket.push(gatewayMessage(op: 10, data: .object(["heartbeat_interval": .number(60_000)])))
+        await socket.push(gatewayMessage(
+            op: 0,
             data: .object([
-                "user": user(id: "1", username: "current", globalName: "Current"),
-                "guilds": .array([]),
-            ])
+                "session_id": .string("invalidate-session"),
+                "resume_gateway_url": .string("wss://gateway.discord.gg"),
+            ]),
+            sequence: 1, eventName: "READY"
+        ))
+        let provider = DiscordRESTProvider(
+            credentials: TestCredentialStore(), handle: .init(accountID: "1"),
+            session: URLSession(configuration: .ephemeral),
+            gatewayTransport: ReadyGatewayTransport(socket: socket),
+            installationID: "fixture"
         )
+        try await provider.startGateway()
+        #expect(await eventually {
+            await provider.gatewaySession?.snapshot().sessionID == "invalidate-session"
+        })
         await provider.receiveGatewayDispatchForTesting(
             name: "GUILD_CREATE", data: guildCreatePayload()
         )
+        await provider.setPendingMemberGuildForTesting(guildID)
+        try await provider.subscribeToMemberList(
+            guildID: guildID, channelID: textChannelID, ranges: [0 ... 99]
+        )
+        let memberListID = try #require(await provider.selectedMemberListID[guildID])
         await provider.receiveGatewayDispatchForTesting(
             name: "GUILD_MEMBER_LIST_UPDATE",
             data: memberListUpdate(
-                id: "everyone", userIDs: ["1", "2", "3"], groupCount: 3
+                id: memberListID, userIDs: ["1", "2", "3"], groupCount: 3
             )
         )
+        let subscriptionSends = await socket.sentPayloadCount(opcode: 37)
+
         await provider.receiveGatewayDispatchForTesting(
             name: "GUILD_MEMBER_LIST_UPDATE",
             data: .object([
                 "guild_id": .string("100"),
-                "id": .string("everyone"),
+                "id": .string(memberListID),
                 "ops": .array([
                     .object([
                         "op": .string("INVALIDATE"),
@@ -336,19 +355,22 @@ struct GatewayLifecycleEventTests {
                 ]),
             ])
         )
+        #expect(await socket.sentPayloadCount(opcode: 37) == subscriptionSends + 1)
+        #expect(await provider.memberListsNeedingRefresh[guildID]?.contains(memberListID) != true)
         #expect(await provider.orderedMemberListIDsForTesting(
-            guildID: guildID, memberListID: "everyone"
+            guildID: guildID, memberListID: memberListID
         ) == [UserID(rawValue: 1), UserID(rawValue: 2), UserID(rawValue: 3)])
 
         await provider.receiveGatewayDispatchForTesting(
             name: "GUILD_MEMBER_LIST_UPDATE",
             data: memberListUpdate(
-                id: "everyone", userIDs: ["4", "5", "6"], groupCount: 3
+                id: memberListID, userIDs: ["4", "5", "6"], groupCount: 3
             )
         )
         #expect(await provider.orderedMemberListIDsForTesting(
-            guildID: guildID, memberListID: "everyone"
+            guildID: guildID, memberListID: memberListID
         ) == [UserID(rawValue: 4), UserID(rawValue: 5), UserID(rawValue: 6)])
+        await provider.disconnect()
     }
 
     @Test func `desktop ETF numeric permissions guild create adds a new guild`() async {
