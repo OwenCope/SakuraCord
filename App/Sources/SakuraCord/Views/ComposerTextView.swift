@@ -38,6 +38,12 @@ final class ComposerDropInteractionState {
         self.isInstant = isTargeted && isInstant
     }
 
+    func reset() {
+        // `clear(destination:)` can't cover this: a drag that ends without exiting never names its destination.
+        destination = nil
+        isInstant = false
+    }
+
     func clear(destination: MessageComposerDestination) {
         guard self.destination == destination else { return }
         self.destination = nil
@@ -883,6 +889,10 @@ final class ComposerNSTextView: ComposerFocusReportingTextView {
     }
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+        onDropTargetChanged?(false, false)
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
         onDropTargetChanged?(false, false)
     }
 

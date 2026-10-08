@@ -432,6 +432,17 @@ private struct ChatRootView: View {
             }
         )
         .overlay { promisedFileDropBridge }
+        .onChange(of: showsFileDropEffect) { _, isShown in
+            // The AppKit drop targets don't start polling, so this keeps the
+            // mouse-button watchdog running whichever target raised the overlay.
+            // Only the SwiftUI target tracks the pointer; the AppKit targets
+            // report their own destination, so the watchdog leaves it alone.
+            if isShown, modifierPollingTask == nil {
+                updateModifierPolling(isTargeted: true, tracksPointer: false)
+            } else if !isShown, !isFileDropTargeted {
+                updateModifierPolling(isTargeted: false)
+            }
+        }
         .onPreferenceChange(ThreadPaneFramePreferenceKey.self) { frame in
             supplementaryPaneFrame = frame
         }
@@ -533,17 +544,43 @@ private struct ChatRootView: View {
         }
     }
 
-    private func updateModifierPolling(isTargeted: Bool) {
+    private func updateModifierPolling(isTargeted: Bool, tracksPointer: Bool = true) {
         modifierPollingTask?.cancel()
         modifierPollingTask = nil
         guard isTargeted else { return }
         modifierPollingTask = Task { @MainActor in
+            var zeroButtonReadings = 0
             while !Task.isCancelled {
-                isInstantUpload = NSEvent.modifierFlags.contains(.shift)
-                hoveredFileDropDestination = composerDestinationForCurrentPointer()
+                // Some drag sessions (notably promised files such as the
+                // screenshot thumbnail) can end without an exit callback.
+                // Drag lock and three-finger drag can briefly report no
+                // buttons mid-drag, so require two readings ~100 ms apart.
+                if NSEvent.pressedMouseButtons == 0 {
+                    zeroButtonReadings += 1
+                    if zeroButtonReadings >= 2 {
+                        resetFileDropState()
+                        return
+                    }
+                    try? await Task.sleep(for: .milliseconds(100))
+                    continue
+                }
+                zeroButtonReadings = 0
+                if tracksPointer {
+                    isInstantUpload = NSEvent.modifierFlags.contains(.shift)
+                    hoveredFileDropDestination = composerDestinationForCurrentPointer()
+                }
                 try? await Task.sleep(for: .milliseconds(50))
             }
         }
+    }
+
+    private func resetFileDropState() {
+        modifierPollingTask?.cancel()
+        modifierPollingTask = nil
+        isFileDropTargeted = false
+        isInstantUpload = false
+        hoveredFileDropDestination = nil
+        composerDropInteraction.reset()
     }
 
     @ToolbarContentBuilder
