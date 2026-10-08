@@ -26,14 +26,22 @@ enum ComposerAutocompleteCommand {
 final class ComposerDropInteractionState {
     private(set) var destination: MessageComposerDestination?
     private(set) var isInstant = false
+    /// Last time any file drop target saw the drag, read by the root view's
+    /// watchdog to spot sessions that ended without an exit callback.
+    @ObservationIgnored private(set) var lastDragActivity = ContinuousClock.now
 
     var isTargeted: Bool { destination != nil }
+
+    func noteDragActivity() {
+        lastDragActivity = .now
+    }
 
     func update(
         isTargeted: Bool,
         destination: MessageComposerDestination,
         isInstant: Bool
     ) {
+        if isTargeted { noteDragActivity() }
         self.destination = isTargeted ? destination : nil
         self.isInstant = isTargeted && isInstant
     }
